@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { 
   PlusCircle, 
   Users, 
@@ -12,10 +12,11 @@ import {
   Hash, 
   User as UserIcon,
   ShieldCheck,
-  ChevronRight
+  ChevronRight,
+  AlertCircle
 } from "lucide-react";
 import { cn, formatDate, generateRoomCode } from "@/lib/utils";
-import { socket, ChatMessage, SocketEvent } from "@/lib/socket-mock";
+import { socket, ChatMessage, SocketEvent } from "@/lib/socket";
 
 type ViewState = "landing" | "join" | "chat";
 
@@ -32,7 +33,9 @@ export default function Home() {
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
+  const [sendError, setSendError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -41,92 +44,98 @@ export default function Home() {
   useEffect(() => {
     const saved = sessionStorage.getItem("chitchat_auth");
     if (saved) {
-      const data = JSON.parse(saved) as UserInfo;
-      joinRoom(data.room, data.name);
+      try {
+        const data = JSON.parse(saved) as UserInfo;
+        if (data.room && data.name) {
+          joinRoom(data.room, data.name);
+        }
+      } catch {
+        sessionStorage.removeItem("chitchat_auth");
+      }
     }
   }, []);
+
+  // Cleanup on tab close / reload
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (view === "chat" && socket) {
+        socket.leave();
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [view]);
 
   // Socket Listener
   useEffect(() => {
     if (!socket || view !== "chat") return;
-    const s = socket; // capture non-null reference for use inside callback
+    const s = socket;
 
     const unsubscribe = s.on((event: SocketEvent) => {
-      const currentUser = s.getUser();
-
       if (event.type === "MESSAGE") {
-        setMessages((prev) => [...prev, event.message]);
-      } else if (event.type === "JOIN") {
-        // This fires when ANOTHER tab joins (BroadcastChannel only sends to other tabs)
-        setOnlineUsers((prev) => Array.from(new Set([...prev, event.user])));
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `sys-${Date.now()}-${event.user}`,
-            sender: "System",
-            text: `${event.user} joined the chat`,
-            timestamp: Date.now(),
-            type: "system"
+        setMessages((prev) => {
+          // Avoid duplicate messages if reconnection / retry occurs
+          if (prev.some((m) => m.id === event.message.id)) {
+            return prev;
           }
-        ]);
-        // Respond with our presence so the new user knows we're here
-        if (event.user !== currentUser) {
-          s.broadcastPresence();
-        }
+          return [...prev, event.message];
+        });
+      } else if (event.type === "ROSTER") {
+        setOnlineUsers(event.users);
+      } else if (event.type === "JOIN") {
+        setOnlineUsers((prev) => Array.from(new Set([...prev, event.user])));
       } else if (event.type === "PRESENCE") {
-        // Another tab is telling us they exist — just update the user list
         setOnlineUsers((prev) => Array.from(new Set([...prev, event.user])));
       } else if (event.type === "LEAVE") {
         setOnlineUsers((prev) => prev.filter((u) => u !== event.user));
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `sys-${Date.now()}-${event.user}`,
-            sender: "System",
-            text: `${event.user} left the chat`,
-            timestamp: Date.now(),
-            type: "system"
-          }
-        ]);
+      } else if (event.type === "ROOM_CLOSED") {
+        setError(`This room has ended: ${event.reason}`);
+        leaveRoom();
+      } else if (event.type === "ERROR") {
+        setSendError(event.error);
+        const timer = setTimeout(() => setSendError(""), 5000);
+        return () => clearTimeout(timer);
       }
     });
 
     return () => {
       unsubscribe();
     };
-  }, [view, userInfo.name]);
+  }, [view]);
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom safely without animation frame lockup
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (messages.length === 0) return;
+    const isRapid = messages.length > 50;
+    messagesEndRef.current?.scrollIntoView({ behavior: isRapid ? "auto" : "smooth" });
+  }, [messages.length]);
 
-  const joinRoom = (room: string, name: string) => {
+  const joinRoom = async (room: string, name: string) => {
     setLoading(true);
-    setTimeout(() => {
-      setUserInfo({ name, room });
+    setError("");
+    try {
+      if (!socket) {
+        throw new Error("Real-time network connection is unavailable");
+      }
+      const response = await socket.join(room, name);
+      setUserInfo({ name: response.name, room: response.room });
+      if (response.messages && Array.isArray(response.messages)) {
+        setMessages(response.messages);
+      } else {
+        setMessages([]);
+      }
+      setOnlineUsers(response.participants || [response.name]);
+      sessionStorage.setItem("chitchat_auth", JSON.stringify({ name: response.name, room: response.room }));
       setView("chat");
-      sessionStorage.setItem("chitchat_auth", JSON.stringify({ name, room }));
-      setOnlineUsers([name]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to join room";
+      setError(msg);
+      setView("join");
+    } finally {
       setLoading(false);
-
-      // Defer socket.join() to the next tick so the useEffect listener
-      // has time to register after view switches to "chat"
-      setTimeout(() => {
-        socket?.join(room, name);
-        // Add our own "joined the chat" system message locally
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `sys-${Date.now()}-${name}`,
-            sender: "System",
-            text: `${name} joined the chat`,
-            timestamp: Date.now(),
-            type: "system"
-          }
-        ]);
-      }, 50);
-    }, 800);
+    }
   };
 
   const handleCreateRoom = () => {
@@ -139,25 +148,54 @@ export default function Home() {
     e.preventDefault();
     setError("");
 
-    if (!userInfo.name.trim()) {
+    const name = userInfo.name.trim();
+    const room = userInfo.room.trim().toUpperCase();
+
+    if (!name) {
       setError("Please enter your display name");
       return;
     }
-    if (!userInfo.room.trim() || userInfo.room.length !== 6) {
-      setError("Please enter a valid 6-digit room code");
+    if (name.length > 30) {
+      setError("Display name must be 30 characters or fewer");
       return;
     }
 
-    joinRoom(userInfo.room.toUpperCase(), userInfo.name);
+    const roomCodeRegex = /^[A-Z0-9]{6}$/;
+    if (!roomCodeRegex.test(room)) {
+      setError("Please enter a valid 6-digit alphanumeric room code (A-Z, 0-9)");
+      return;
+    }
+
+    joinRoom(room, name);
   };
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputMessage.trim()) return;
+    const textToSend = inputMessage.trim();
+    if (!textToSend || isSending) return;
 
-    socket?.sendMessage(inputMessage);
-    setInputMessage("");
-    inputRef.current?.focus();
+    if (textToSend.length > 1000) {
+      setSendError("Message exceeds 1,000 characters limit");
+      return;
+    }
+
+    setIsSending(true);
+    setSendError("");
+
+    try {
+      const res = await socket?.sendMessage(textToSend);
+      if (res && !res.success) {
+        setSendError(res.error || "Failed to deliver message");
+      } else {
+        setInputMessage("");
+        inputRef.current?.focus();
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Delivery failed";
+      setSendError(msg);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const copyCode = () => {
@@ -166,13 +204,18 @@ export default function Home() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const leaveRoom = () => {
-    socket?.leave();
+  const leaveRoom = async () => {
+    try {
+      await socket?.leave();
+    } catch {
+      // Ignore
+    }
     sessionStorage.removeItem("chitchat_auth");
     setView("landing");
     setUserInfo({ name: "", room: "" });
     setMessages([]);
     setOnlineUsers([]);
+    setSendError("");
   };
 
   if (loading) {
@@ -218,7 +261,10 @@ export default function Home() {
             </button>
 
             <button
-              onClick={() => setView("join")}
+              onClick={() => {
+                setError("");
+                setView("join");
+              }}
               className="group relative flex flex-col items-center gap-4 p-8 rounded-2xl bg-secondary hover:bg-accent border border-white/5 hover:border-primary/50 transition-all duration-300"
             >
               <div className="p-4 rounded-xl bg-primary/10 text-primary group-hover:scale-110 transition-transform">
@@ -265,6 +311,7 @@ export default function Home() {
                 <input
                   type="text"
                   placeholder="e.g. Alex"
+                  maxLength={30}
                   value={userInfo.name}
                   onChange={(e) => setUserInfo({ ...userInfo, name: e.target.value })}
                   className="w-full px-4 py-3 rounded-xl bg-accent border border-white/10 focus:border-primary/50 focus:ring-1 focus:ring-primary outline-none transition-all"
@@ -345,7 +392,7 @@ export default function Home() {
           
           <ul className="space-y-2">
             {onlineUsers.map((user, i) => (
-              <li key={i} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors animate-slide-up">
+              <li key={`${user}-${i}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors animate-slide-up">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-xs font-bold border border-white/10">
                   {user.charAt(0).toUpperCase()}
                 </div>
@@ -361,16 +408,32 @@ export default function Home() {
 
       {/* Main Chat Area */}
       <main className="flex-1 flex flex-col h-full bg-background relative">
-        <header className="p-4 border-b border-white/5 flex items-center gap-4 bg-background/50 backdrop-blur-md z-10">
-          <div className="md:hidden flex items-center gap-2">
-             <Hash size={18} className="text-primary" />
-             <span className="font-mono font-bold">{userInfo.room}</span>
-          </div>
-          <div className="hidden md:flex flex-col">
-            <h1 className="text-lg font-bold">General Room Chat</h1>
-            <p className="text-xs text-secondary-foreground/60">End-to-end simulated encryption active</p>
+        <header className="p-4 border-b border-white/5 flex items-center justify-between bg-background/50 backdrop-blur-md z-10">
+          <div className="flex items-center gap-4">
+            <div className="md:hidden flex items-center gap-2">
+               <Hash size={18} className="text-primary" />
+               <span className="font-mono font-bold">{userInfo.room}</span>
+            </div>
+            <div className="hidden md:flex flex-col">
+              <h1 className="text-lg font-bold">General Room Chat</h1>
+              <p className="text-xs text-secondary-foreground/60">Ephemeral In-Memory Chat • TLS Transport</p>
+            </div>
           </div>
         </header>
+
+        {/* Send Error Toast */}
+        {sendError && (
+          <div className="absolute top-16 left-4 right-4 z-20 flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-xs backdrop-blur-md animate-slide-down">
+            <AlertCircle size={16} />
+            <span>{sendError}</span>
+            <button 
+              onClick={() => setSendError("")} 
+              className="ml-auto text-red-400/60 hover:text-red-400"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth">
@@ -403,7 +466,7 @@ export default function Home() {
                     </div>
                     <div 
                       className={cn(
-                        "px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-lg",
+                        "px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-lg break-words",
                         msg.sender === userInfo.name 
                           ? "bg-primary text-white rounded-tr-none" 
                           : "bg-accent text-foreground rounded-tl-none border border-white/5"
@@ -429,13 +492,15 @@ export default function Home() {
               ref={inputRef}
               type="text"
               placeholder="Type your message..."
+              maxLength={1000}
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               className="flex-1 bg-transparent px-4 py-3 outline-none text-sm"
+              disabled={isSending}
             />
             <button
               type="submit"
-              disabled={!inputMessage.trim()}
+              disabled={!inputMessage.trim() || isSending}
               className="p-3 rounded-xl bg-primary text-white hover:bg-primary/90 disabled:opacity-50 disabled:hover:bg-primary transition-all active:scale-90"
             >
               <Send size={20} />
