@@ -13,7 +13,9 @@ import {
   User as UserIcon,
   ShieldCheck,
   ChevronRight,
-  AlertCircle
+  AlertCircle,
+  Menu,
+  X
 } from "lucide-react";
 import { cn, formatDate, generateRoomCode } from "@/lib/utils";
 import { socket, ChatMessage, SocketEvent, RoomParticipant } from "@/lib/socket";
@@ -52,6 +54,7 @@ export default function Home() {
   const [sendError, setSendError] = useState("");
   const [loading, setLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -82,6 +85,37 @@ export default function Home() {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, [view]);
+
+  // Handle Escape key and body scroll lock for mobile sidebar drawer
+  useEffect(() => {
+    if (!isSidebarOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsSidebarOpen(false);
+      }
+    };
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isSidebarOpen]);
+
+  // Close mobile drawer on desktop resize
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 768) {
+        setIsSidebarOpen(false);
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   // Socket Listener
   useEffect(() => {
@@ -257,6 +291,7 @@ export default function Home() {
     setMessages([]);
     setParticipants([]);
     setSendError("");
+    setIsSidebarOpen(false);
   };
 
   if (loading) {
@@ -392,16 +427,46 @@ export default function Home() {
   // --- CHAT ROOM VIEW ---
 
   return (
-    <div className="flex flex-col md:flex-row h-screen bg-background overflow-hidden">
+    <div className="flex flex-col md:flex-row h-screen h-[100dvh] bg-background overflow-hidden relative">
+      {/* Mobile Backdrop */}
+      <div 
+        className={cn(
+          "fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden transition-opacity duration-300",
+          isSidebarOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        )}
+        onClick={() => setIsSidebarOpen(false)}
+        aria-hidden="true"
+      />
+
       {/* Sidebar */}
-      <aside className="w-full md:w-80 glass-card border-r border-white/5 flex flex-col h-auto md:h-full">
-        <div className="p-6 border-b border-white/5 space-y-6">
+      <aside 
+        id="chat-sidebar"
+        aria-label="Room Information and Participants"
+        className={cn(
+          "fixed inset-y-0 left-0 z-40 w-72 sm:w-80 max-w-[85vw] h-full h-[100dvh] flex flex-col bg-background/95 backdrop-blur-xl border-r border-white/10 shadow-2xl transition-transform duration-300 ease-in-out",
+          "md:static md:translate-x-0 md:w-80 md:h-full md:z-auto md:shadow-none md:border-r md:border-white/5 md:bg-transparent md:backdrop-blur-none glass-card",
+          isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        <div className="p-6 border-b border-white/5 space-y-6 shrink-0">
           <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-bold tracking-tighter italic">ChitChat</h2>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsSidebarOpen(false)}
+                className="p-1.5 -ml-1.5 rounded-lg text-secondary-foreground/60 hover:text-foreground hover:bg-white/10 md:hidden transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
+                aria-label="Close sidebar"
+              >
+                <X size={20} />
+              </button>
+              <h2 className="text-2xl font-bold tracking-tighter italic">ChitChat</h2>
+            </div>
             <button 
+              type="button"
               onClick={leaveRoom}
-              className="p-2 rounded-lg hover:bg-red-500/20 text-red-400 transition-colors"
+              className="p-2 rounded-lg hover:bg-red-500/20 text-red-400 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400"
               title="Leave Room"
+              aria-label="Leave Room"
             >
               <LogOut size={20} />
             </button>
@@ -412,8 +477,10 @@ export default function Home() {
             <div className="flex items-center justify-between p-3 rounded-xl bg-accent border border-white/10 group">
               <span className="font-mono font-bold tracking-widest text-primary">{userInfo.room}</span>
               <button 
+                type="button"
                 onClick={copyCode}
-                className="p-1.5 rounded-md hover:bg-white/10 text-secondary-foreground/60 transition-all active:scale-90"
+                className="p-1.5 rounded-md hover:bg-white/10 text-secondary-foreground/60 transition-all active:scale-90 focus:outline-none focus:ring-2 focus:ring-primary"
+                aria-label={copied ? "Room code copied" : "Copy room code"}
               >
                 {copied ? <Check size={16} className="text-green-400" /> : <Copy size={16} />}
               </button>
@@ -486,12 +553,27 @@ export default function Home() {
       </aside>
 
       {/* Main Chat Area */}
-      <main className="flex-1 flex flex-col h-full bg-background relative">
-        <header className="p-4 border-b border-white/5 flex items-center justify-between bg-background/50 backdrop-blur-md z-10">
-          <div className="flex items-center gap-4">
+      <main className="flex-1 flex flex-col h-full min-w-0 bg-background relative">
+        <header className="p-3 sm:p-4 border-b border-white/5 flex items-center justify-between bg-background/50 backdrop-blur-md z-10 shrink-0">
+          <div className="flex items-center gap-3">
+            {/* Mobile Hamburger Menu Button */}
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen(true)}
+              className="md:hidden p-2 rounded-xl bg-accent/60 hover:bg-accent text-foreground hover:text-primary border border-white/10 transition-all active:scale-95 focus:outline-none focus:ring-2 focus:ring-primary flex items-center justify-center shrink-0"
+              aria-label="Open sidebar menu"
+              aria-expanded={isSidebarOpen}
+              aria-controls="chat-sidebar"
+            >
+              <Menu size={20} />
+            </button>
+
             <div className="md:hidden flex items-center gap-2">
-               <Hash size={18} className="text-primary" />
-               <span className="font-mono font-bold">{userInfo.room}</span>
+               <Hash size={18} className="text-primary shrink-0" />
+               <span className="font-mono font-bold tracking-wider">{userInfo.room}</span>
+               <span className="text-[11px] bg-primary/20 text-primary px-2 py-0.5 rounded-full font-bold ml-1">
+                 {participants.filter((p) => p.isOnline !== false).length} online
+               </span>
             </div>
             <div className="hidden md:flex flex-col">
               <h1 className="text-lg font-bold">General Room Chat</h1>
