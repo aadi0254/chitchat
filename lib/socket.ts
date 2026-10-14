@@ -1,7 +1,7 @@
 "use client";
 
 import { io, Socket } from "socket.io-client";
-import { ChatMessage, SocketEvent, RoomJoinedResponse } from "@/types/chat";
+import { ChatMessage, SocketEvent, RoomJoinedResponse, RoomParticipant } from "@/types/chat";
 
 class RealSocketClient {
   private socket: Socket | null = null;
@@ -10,6 +10,7 @@ class RealSocketClient {
   private user: string | null = null;
   private participantId: string | null = null;
   private serverUrl: string = "";
+  private isJoining: boolean = false;
 
   constructor() {
     if (typeof window !== "undefined") {
@@ -19,10 +20,9 @@ class RealSocketClient {
 
   private initConnection() {
     // Determine backend URL:
-    // 1. Explicit env var
+    // 1. Explicit env var (trimmed of trailing slashes)
     // 2. Window location origin (if backend is on same port)
-    // 3. Fallback to port 3001 in dev
-    let targetUrl = process.env.NEXT_PUBLIC_SOCKET_URL || "";
+    let targetUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || "").trim().replace(/\/+$/, "");
     if (!targetUrl && typeof window !== "undefined") {
       targetUrl = window.location.origin;
     }
@@ -52,13 +52,31 @@ class RealSocketClient {
     if (!this.socket) return;
 
     this.socket.on("connect", () => {
-      // If we already had an active room, attempt seamless rejoin on reconnect
-      if (this.room && this.user) {
+      // If we already had an active room and participant ID, re-announce on reconnect
+      if (this.room && this.user && this.participantId && !this.isJoining) {
         this.socket?.emit("join_room", {
           room: this.room,
           name: this.user,
-          participantId: this.participantId || undefined
+          participantId: this.participantId
         });
+      }
+    });
+
+    this.socket.on("room_joined", (response: RoomJoinedResponse) => {
+      if (response && response.success) {
+        if (response.participantId) {
+          this.participantId = response.participantId;
+          try {
+            sessionStorage.setItem("chitchat_pid", response.participantId);
+          } catch {}
+        }
+        if (response.participants) {
+          this.notifyListeners({
+            type: "ROSTER",
+            room: response.room || this.room || "",
+            users: response.participants
+          });
+        }
       }
     });
 
@@ -70,43 +88,52 @@ class RealSocketClient {
       });
     });
 
-    this.socket.on("user_joined", (data: { user: string; participants: string[] }) => {
+    this.socket.on("user_joined", (data: { user: string; participant?: RoomParticipant; participants?: (RoomParticipant | string)[] }) => {
       this.notifyListeners({
         type: "JOIN",
         room: this.room || "",
-        user: data.user
+        user: data.user,
+        participant: data.participant
       });
-      this.notifyListeners({
-        type: "ROSTER",
-        room: this.room || "",
-        users: data.participants
-      });
+      if (data.participants) {
+        this.notifyListeners({
+          type: "ROSTER",
+          room: this.room || "",
+          users: data.participants
+        });
+      }
     });
 
-    this.socket.on("user_left", (data: { user: string; participants: string[] }) => {
+    this.socket.on("user_left", (data: { user: string; participantId?: string; participants?: (RoomParticipant | string)[] }) => {
       this.notifyListeners({
         type: "LEAVE",
         room: this.room || "",
-        user: data.user
+        user: data.user,
+        participantId: data.participantId
       });
-      this.notifyListeners({
-        type: "ROSTER",
-        room: this.room || "",
-        users: data.participants
-      });
+      if (data.participants) {
+        this.notifyListeners({
+          type: "ROSTER",
+          room: this.room || "",
+          users: data.participants
+        });
+      }
     });
 
-    this.socket.on("presence_update", (data: { user: string; participants: string[] }) => {
+    this.socket.on("presence_update", (data: { user: string; participant?: RoomParticipant; participants?: (RoomParticipant | string)[] }) => {
       this.notifyListeners({
         type: "PRESENCE",
         room: this.room || "",
-        user: data.user
+        user: data.user,
+        participant: data.participant
       });
-      this.notifyListeners({
-        type: "ROSTER",
-        room: this.room || "",
-        users: data.participants
-      });
+      if (data.participants) {
+        this.notifyListeners({
+          type: "ROSTER",
+          room: this.room || "",
+          users: data.participants
+        });
+      }
     });
 
     this.socket.on("room_closed", (data: { reason: string }) => {
@@ -116,6 +143,11 @@ class RealSocketClient {
         reason: data.reason
       });
       this.room = null;
+      this.user = null;
+      this.participantId = null;
+      try {
+        sessionStorage.removeItem("chitchat_pid");
+      } catch {}
     });
 
     this.socket.on("error_event", (data: { error: string }) => {
@@ -153,12 +185,14 @@ class RealSocketClient {
 
       this.room = room.trim().toUpperCase();
       this.user = user.trim();
+      this.isJoining = true;
 
       if (!this.socket.connected) {
         this.socket.connect();
       }
 
       const timeout = setTimeout(() => {
+        this.isJoining = false;
         reject(new Error("Connection timed out while joining room. Please check your network."));
       }, 8000);
 
@@ -171,6 +205,7 @@ class RealSocketClient {
         },
         (response: RoomJoinedResponse) => {
           clearTimeout(timeout);
+          this.isJoining = false;
           if (response && response.success) {
             this.participantId = response.participantId;
             try {
@@ -305,4 +340,4 @@ class RealSocketClient {
 
 // Singleton client instance
 export const socket = typeof window !== "undefined" ? new RealSocketClient() : null;
-export type { ChatMessage, SocketEvent };
+export type { ChatMessage, SocketEvent, RoomParticipant };

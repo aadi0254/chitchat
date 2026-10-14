@@ -13,8 +13,8 @@ export interface ChatMessage {
 export interface RoomParticipant {
   id: string;
   name: string;
-  joinedAt: number;
-  isOnline: boolean;
+  joinedAt?: number;
+  isOnline?: boolean;
 }
 
 export interface JoinRoomPayload {
@@ -40,7 +40,7 @@ export interface RoomJoinedResponse {
   instanceId: string;
   participantId: string;
   name: string;
-  participants: string[];
+  participants: (RoomParticipant | string)[];
   messages: ChatMessage[];
   error?: string;
 }
@@ -52,10 +52,10 @@ export interface MessageAckResponse {
 }
 
 export type SocketEvent =
-  | { type: "JOIN"; room: string; user: string }
-  | { type: "LEAVE"; room: string; user: string }
+  | { type: "JOIN"; room: string; user: string; participant?: RoomParticipant }
+  | { type: "LEAVE"; room: string; user: string; participantId?: string }
   | { type: "MESSAGE"; room: string; message: ChatMessage }
-  | { type: "PRESENCE"; room: string; user: string }
-  | { type: "ROSTER"; room: string; users: string[] }
+  | { type: "PRESENCE"; room: string; user: string; participant?: RoomParticipant }
+  | { type: "ROSTER"; room: string; users: (RoomParticipant | string)[] }
   | { type: "ROOM_CLOSED"; room: string; reason: string }
   | { type: "ERROR"; room?: string; error: string };

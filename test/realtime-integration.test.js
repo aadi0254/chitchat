@@ -323,4 +323,143 @@ test("ChitChat Real-Time Integration Suite", async (t) => {
     assert.equal(finalStats.activeRooms, 0);
     assert.equal(finalStats.totalInstances, 0);
   });
+
+  await t.test("Scenario 16: Phase 4 Room Synchronization & Participant Metadata Verification (10-step sequence)", async () => {
+    // 1. Device A creates/joins a room
+    const devA = await createClient(serverUrl);
+    const devAMessages = [];
+    let devARoster = [];
+    devA.on("message", (m) => devAMessages.push(m));
+    devA.on("user_joined", (e) => { devARoster = e.participants; });
+    devA.on("user_left", (e) => { devARoster = e.participants; });
+
+    const joinARes = await new Promise((res) => {
+      devA.emit("join_room", { room: "SYNC01", name: "DeviceA" }, res);
+    });
+    assert.equal(joinARes.success, true);
+    assert.equal(joinARes.participants.length, 1);
+    assert.equal(joinARes.participants[0].name, "DeviceA");
+    assert.ok(joinARes.participants[0].id);
+    assert.ok(joinARes.participants[0].joinedAt);
+    assert.equal(joinARes.participants[0].isOnline, true);
+    devARoster = joinARes.participants;
+
+    // 2. Device B joins using the same room code
+    const devB = await createClient(serverUrl);
+    const devBMessages = [];
+    let devBRoster = [];
+    devB.on("message", (m) => devBMessages.push(m));
+    devB.on("user_joined", (e) => { devBRoster = e.participants; });
+    devB.on("user_left", (e) => { devBRoster = e.participants; });
+
+    const joinBRes = await new Promise((res) => {
+      devB.emit("join_room", { room: "SYNC01", name: "DeviceB" }, res);
+    });
+    assert.equal(joinBRes.success, true);
+    devBRoster = joinBRes.participants;
+
+    // Wait briefly for join broadcast
+    await new Promise((r) => setTimeout(r, 50));
+
+    // 3. Both devices display the correct participant list with full metadata
+    assert.equal(devARoster.length, 2);
+    assert.equal(devBRoster.length, 2);
+    assert.ok(devARoster.some((p) => p.name === "DeviceA" && p.id && p.joinedAt && p.isOnline));
+    assert.ok(devARoster.some((p) => p.name === "DeviceB" && p.id && p.joinedAt && p.isOnline));
+    assert.ok(devBRoster.some((p) => p.name === "DeviceA" && p.id && p.joinedAt && p.isOnline));
+    assert.ok(devBRoster.some((p) => p.name === "DeviceB" && p.id && p.joinedAt && p.isOnline));
+
+    // 4. Device A sends a message; device B receives it
+    const sendA = await new Promise((res) => {
+      devA.emit("send_message", { room: "SYNC01", text: "Hello from Device A" }, res);
+    });
+    assert.equal(sendA.success, true);
+
+    await new Promise((r) => setTimeout(r, 50));
+    const msgForB = devBMessages.find((m) => m.text === "Hello from Device A");
+    assert.ok(msgForB);
+    assert.equal(msgForB.sender, "DeviceA");
+
+    // 5. Device B sends a reply; device A receives it
+    const sendB = await new Promise((res) => {
+      devB.emit("send_message", { room: "SYNC01", text: "Reply from Device B" }, res);
+    });
+    assert.equal(sendB.success, true);
+
+    await new Promise((r) => setTimeout(r, 50));
+    const msgForA = devAMessages.find((m) => m.text === "Reply from Device B");
+    assert.ok(msgForA);
+    assert.equal(msgForA.sender, "DeviceB");
+
+    // 6. A third participant joins, and all active participants see the correct sidebar
+    const devC = await createClient(serverUrl);
+    const joinCRes = await new Promise((res) => {
+      devC.emit("join_room", { room: "SYNC01", name: "DeviceC" }, res);
+    });
+    assert.equal(joinCRes.success, true);
+    assert.equal(joinCRes.participants.length, 3);
+
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(devARoster.length, 3);
+    assert.equal(devBRoster.length, 3);
+
+    // 7. A participant leaves, and the sidebar updates
+    await new Promise((res) => devC.emit("leave_room", { room: "SYNC01" }, res));
+    devC.disconnect();
+
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(devARoster.length, 2);
+    assert.equal(devBRoster.length, 2);
+    assert.equal(devARoster.some((p) => p.name === "DeviceC"), false);
+
+    // 8. Disconnect and reconnect a client and verify membership restoration
+    const devBPid = joinBRes.participantId;
+    devB.disconnect();
+
+    // Reconnect client B within grace period
+    const devB2 = await createClient(serverUrl);
+    const reconnectBRes = await new Promise((res) => {
+      devB2.emit("join_room", { room: "SYNC01", name: "DeviceB", participantId: devBPid }, res);
+    });
+    assert.equal(reconnectBRes.success, true);
+    assert.equal(reconnectBRes.participantId, devBPid);
+    assert.equal(reconnectBRes.participants.length, 2);
+
+    // 9. Send more than 1,000 messages without an arbitrary total message-count limit
+    for (let i = 1; i <= 1010; i++) {
+      await new Promise((res) => {
+        devA.emit("send_message", { room: "SYNC01", text: `Stress test #${i}` }, res);
+      });
+    }
+    const roomRef = server.roomManager.getActiveRoom("SYNC01");
+    assert.ok(roomRef);
+    assert.ok(roomRef.messages.length > 1010);
+
+    // 10. Confirm that separate rooms cannot see each other's messages or participants
+    const devOther = await createClient(serverUrl);
+    const devOtherMessages = [];
+    devOther.on("message", (m) => devOtherMessages.push(m));
+
+    const joinOtherRes = await new Promise((res) => {
+      devOther.emit("join_room", { room: "ISOL88", name: "OtherUser" }, res);
+    });
+    assert.equal(joinOtherRes.participants.length, 1);
+    assert.equal(joinOtherRes.participants[0].name, "OtherUser");
+
+    // Device A sends in SYNC01
+    await new Promise((res) => devA.emit("send_message", { room: "SYNC01", text: "Top secret SYNC01" }, res));
+    await new Promise((r) => setTimeout(r, 50));
+
+    // ISOL88 client must not receive message from SYNC01
+    assert.equal(devOtherMessages.some((m) => m.text === "Top secret SYNC01"), false);
+
+    // Cleanup
+    await new Promise((res) => devA.emit("leave_room", { room: "SYNC01" }, res));
+    await new Promise((res) => devB2.emit("leave_room", { room: "SYNC01" }, res));
+    await new Promise((res) => devOther.emit("leave_room", { room: "ISOL88" }, res));
+    devA.disconnect();
+    devB2.disconnect();
+    devOther.disconnect();
+  });
 });
+
