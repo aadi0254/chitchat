@@ -154,14 +154,18 @@ class RoomManager {
     // Clean up any previous room registration for this socketId
     this.socketToRoomCode.set(socketId, code);
 
-    // Reconnection check
-    if (participantId && room.participants.has(participantId)) {
-      const participant = /** @type {Participant} */ (room.participants.get(participantId));
+    // Check if this socket already has a participant in this room, or if reconnecting with participantId
+    const existingSocketPid = room.socketToParticipant.get(socketId);
+    const targetPid = participantId || existingSocketPid;
+
+    // Reconnection or socket re-registration check
+    if (targetPid && room.participants.has(targetPid)) {
+      const participant = /** @type {Participant} */ (room.participants.get(targetPid));
 
       // Cancel disconnect timer if active
-      if (room.disconnectTimers.has(participantId)) {
-        clearTimeout(/** @type {NodeJS.Timeout} */ (room.disconnectTimers.get(participantId)));
-        room.disconnectTimers.delete(participantId);
+      if (room.disconnectTimers.has(targetPid)) {
+        clearTimeout(/** @type {NodeJS.Timeout} */ (room.disconnectTimers.get(targetPid)));
+        room.disconnectTimers.delete(targetPid);
       }
 
       // Remove old socket mapping if different
@@ -173,7 +177,7 @@ class RoomManager {
       participant.socketId = socketId;
       participant.name = name;
       participant.isOnline = true;
-      room.socketToParticipant.set(socketId, participantId);
+      room.socketToParticipant.set(socketId, targetPid);
 
       return { room, participant, isReconnect: true };
     }

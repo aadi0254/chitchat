@@ -16,7 +16,23 @@ import {
   AlertCircle
 } from "lucide-react";
 import { cn, formatDate, generateRoomCode } from "@/lib/utils";
-import { socket, ChatMessage, SocketEvent } from "@/lib/socket";
+import { socket, ChatMessage, SocketEvent, RoomParticipant } from "@/lib/socket";
+
+function normalizeParticipant(p: RoomParticipant | string): RoomParticipant {
+  if (typeof p === "string") {
+    return {
+      id: p,
+      name: p,
+      isOnline: true
+    };
+  }
+  return {
+    id: p.id || p.name || "unknown",
+    name: p.name || "Anonymous",
+    joinedAt: p.joinedAt,
+    isOnline: p.isOnline !== false
+  };
+}
 
 type ViewState = "landing" | "join" | "chat";
 
@@ -30,7 +46,7 @@ export default function Home() {
   const [userInfo, setUserInfo] = useState<UserInfo>({ name: "", room: "" });
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState("");
-  const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
+  const [participants, setParticipants] = useState<RoomParticipant[]>([]);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
   const [sendError, setSendError] = useState("");
@@ -55,12 +71,11 @@ export default function Home() {
     }
   }, []);
 
-  // Cleanup on tab close / reload
+  // Cleanup on tab close / reload (allow transport disconnect grace period on refresh)
   useEffect(() => {
     const handleBeforeUnload = () => {
-      if (view === "chat" && socket) {
-        socket.leave();
-      }
+      // Do not explicitly leave room on reload; transport disconnect grace period will hold
+      // membership for 15s to allow seamless refresh without destroying room session.
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => {
@@ -83,13 +98,34 @@ export default function Home() {
           return [...prev, event.message];
         });
       } else if (event.type === "ROSTER") {
-        setOnlineUsers(event.users);
+        setParticipants(event.users.map(normalizeParticipant));
       } else if (event.type === "JOIN") {
-        setOnlineUsers((prev) => Array.from(new Set([...prev, event.user])));
+        if (event.participant) {
+          const newP = normalizeParticipant(event.participant);
+          setParticipants((prev) => {
+            const exists = prev.some((p) => p.id === newP.id);
+            if (exists) {
+              return prev.map((p) => (p.id === newP.id ? { ...p, ...newP, isOnline: true } : p));
+            }
+            return [...prev, newP];
+          });
+        } else if (event.user) {
+          setParticipants((prev) => {
+            if (prev.some((p) => p.name === event.user)) return prev;
+            return [...prev, { id: event.user, name: event.user, isOnline: true }];
+          });
+        }
       } else if (event.type === "PRESENCE") {
-        setOnlineUsers((prev) => Array.from(new Set([...prev, event.user])));
+        if (event.participant) {
+          const updatedP = normalizeParticipant(event.participant);
+          setParticipants((prev) =>
+            prev.map((p) => (p.id === updatedP.id ? { ...p, ...updatedP, isOnline: true } : p))
+          );
+        }
       } else if (event.type === "LEAVE") {
-        setOnlineUsers((prev) => prev.filter((u) => u !== event.user));
+        setParticipants((prev) =>
+          prev.filter((p) => (event.participantId ? p.id !== event.participantId : p.name !== event.user))
+        );
       } else if (event.type === "ROOM_CLOSED") {
         setError(`This room has ended: ${event.reason}`);
         leaveRoom();
@@ -126,7 +162,12 @@ export default function Home() {
       } else {
         setMessages([]);
       }
-      setOnlineUsers(response.participants || [response.name]);
+      const initialRoster = (response.participants || []).map(normalizeParticipant);
+      setParticipants(
+        initialRoster.length > 0
+          ? initialRoster
+          : [{ id: response.participantId || response.name, name: response.name, isOnline: true }]
+      );
       sessionStorage.setItem("chitchat_auth", JSON.stringify({ name: response.name, room: response.room }));
       setView("chat");
     } catch (err: unknown) {
@@ -214,7 +255,7 @@ export default function Home() {
     setView("landing");
     setUserInfo({ name: "", room: "" });
     setMessages([]);
-    setOnlineUsers([]);
+    setParticipants([]);
     setSendError("");
   };
 
@@ -383,25 +424,63 @@ export default function Home() {
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold flex items-center gap-2">
-              <Users size={16} className="text-primary" /> Online Users
+              <Users size={16} className="text-primary" /> Active Participants
             </h3>
             <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full font-bold">
-              {onlineUsers.length}
+              {participants.filter((p) => p.isOnline !== false).length}
             </span>
           </div>
           
-          <ul className="space-y-2">
-            {onlineUsers.map((user, i) => (
-              <li key={`${user}-${i}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors animate-slide-up">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-xs font-bold border border-white/10">
-                  {user.charAt(0).toUpperCase()}
-                </div>
-                <span className={cn("text-sm", user === userInfo.name ? "text-primary font-medium" : "text-foreground")}>
-                  {user} {user === userInfo.name && "(You)"}
-                </span>
-                <div className="w-1.5 h-1.5 rounded-full bg-green-500 ml-auto shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
-              </li>
-            ))}
+          <ul className="space-y-2.5">
+            {participants.map((p) => {
+              const currentPid = socket?.getParticipantId();
+              const isCurrentUser = (currentPid && p.id === currentPid) || p.name === userInfo.name;
+              const displayName = p.name || "Anonymous";
+              const initial = displayName.charAt(0).toUpperCase();
+
+              return (
+                <li 
+                  key={p.id} 
+                  className="flex items-center gap-3 p-2.5 rounded-xl bg-accent/30 hover:bg-accent/60 border border-white/5 transition-all animate-slide-up"
+                >
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-xs font-bold border border-white/10 shrink-0 shadow-sm">
+                    {initial}
+                  </div>
+                  <div className="flex flex-col min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className={cn("text-sm font-medium truncate", isCurrentUser ? "text-primary" : "text-foreground")}>
+                        {displayName}
+                      </span>
+                      {isCurrentUser && (
+                        <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.2 rounded font-semibold shrink-0">
+                          You
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] text-secondary-foreground/50 truncate">
+                      <span className="font-mono text-[10px]" title={`Participant ID: ${p.id}`}>
+                        ID: {p.id.slice(0, 6)}
+                      </span>
+                      {p.joinedAt ? (
+                        <>
+                          <span>•</span>
+                          <span>{formatDate(p.joinedAt)}</span>
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div 
+                    className={cn(
+                      "w-2 h-2 rounded-full shrink-0 ml-1 transition-colors",
+                      p.isOnline !== false 
+                        ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" 
+                        : "bg-zinc-500"
+                    )}
+                    title={p.isOnline !== false ? "Online" : "Away"}
+                  />
+                </li>
+              );
+            })}
           </ul>
         </div>
       </aside>

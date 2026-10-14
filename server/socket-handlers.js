@@ -9,6 +9,22 @@ const crypto = require("crypto");
  */
 
 /**
+ * Extract public active participant metadata
+ * @param {import("./room-manager").RoomInstance} room
+ * @returns {Array<{ id: string, name: string, joinedAt: number, isOnline: boolean }>}
+ */
+function getActiveParticipants(room) {
+  return Array.from(room.participants.values())
+    .filter(p => p.isOnline)
+    .map(p => ({
+      id: p.id,
+      name: p.name,
+      joinedAt: p.joinedAt,
+      isOnline: p.isOnline
+    }));
+}
+
+/**
  * Register Socket.IO handlers
  * @param {SocketIOServer} io
  * @param {RoomManager} roomManager
@@ -33,9 +49,7 @@ function registerSocketHandlers(io, roomManager) {
         // Join Socket.IO room channel
         socket.join(room.code);
 
-        const activeParticipants = Array.from(room.participants.values())
-          .filter(p => p.isOnline)
-          .map(p => p.name);
+        const activeParticipants = getActiveParticipants(room);
 
         const response = {
           success: true,
@@ -67,6 +81,12 @@ function registerSocketHandlers(io, roomManager) {
 
           socket.to(room.code).emit("user_joined", {
             user: participant.name,
+            participant: {
+              id: participant.id,
+              name: participant.name,
+              joinedAt: participant.joinedAt,
+              isOnline: participant.isOnline
+            },
             participants: activeParticipants
           });
           io.to(room.code).emit("message", sysMsg);
@@ -74,6 +94,12 @@ function registerSocketHandlers(io, roomManager) {
           // Reconnect announcement to peers
           socket.to(room.code).emit("presence_update", {
             user: participant.name,
+            participant: {
+              id: participant.id,
+              name: participant.name,
+              joinedAt: participant.joinedAt,
+              isOnline: participant.isOnline
+            },
             participants: activeParticipants
           });
         }
@@ -122,9 +148,7 @@ function registerSocketHandlers(io, roomManager) {
           socket.leave(room.code);
 
           if (remainingCount > 0) {
-            const activeParticipants = Array.from(room.participants.values())
-              .filter(p => p.isOnline)
-              .map(p => p.name);
+            const activeParticipants = getActiveParticipants(room);
 
             /** @type {ChatMessage} */
             const sysMsg = {
@@ -139,6 +163,7 @@ function registerSocketHandlers(io, roomManager) {
 
             socket.to(room.code).emit("user_left", {
               user: participant.name,
+              participantId: participant.id,
               participants: activeParticipants
             });
             socket.to(room.code).emit("message", sysMsg);
@@ -182,9 +207,7 @@ function registerSocketHandlers(io, roomManager) {
       roomManager.handleSocketDisconnect(socket.id, (room, participant, remainingCount) => {
         // Callback executed if grace period expired without reconnection
         if (room.status === "active" && remainingCount > 0) {
-          const activeParticipants = Array.from(room.participants.values())
-            .filter(p => p.isOnline)
-            .map(p => p.name);
+          const activeParticipants = getActiveParticipants(room);
 
           /** @type {ChatMessage} */
           const sysMsg = {
@@ -199,6 +222,7 @@ function registerSocketHandlers(io, roomManager) {
 
           io.to(room.code).emit("user_left", {
             user: participant.name,
+            participantId: participant.id,
             participants: activeParticipants
           });
           io.to(room.code).emit("message", sysMsg);
