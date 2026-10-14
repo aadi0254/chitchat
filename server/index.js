@@ -36,45 +36,58 @@ function createRealtimeServer(options = {}) {
       return;
     }
 
-    const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+    try {
+      const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
-    // Health check endpoint
-    if (url.pathname === "/health") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({
-        status: "ok",
-        uptime: process.uptime(),
-        ...roomManager.getStats()
-      }));
-      return;
-    }
-
-    // Ephemeral Room Inspection API (Diagnostic verification for tests)
-    // Never returns message contents - only existence and counts
-    if (url.pathname.startsWith("/api/rooms/")) {
-      const roomCode = url.pathname.replace("/api/rooms/", "").trim().toUpperCase();
-      const room = roomManager.getActiveRoom(roomCode);
-      if (!room) {
-        res.writeHead(404, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ exists: false, room: roomCode }));
+      // Health check endpoint
+      if (url.pathname === "/health") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          status: "ok",
+          uptime: process.uptime(),
+          ...roomManager.getStats()
+        }));
         return;
       }
 
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({
-        exists: true,
-        room: room.code,
-        instanceId: room.instanceId,
-        participantCount: room.participants.size,
-        onlineCount: Array.from(room.participants.values()).filter(p => p.isOnline).length,
-        messageCount: room.messages.length
-      }));
-      return;
-    }
+      // Ephemeral Room Inspection API (Diagnostic verification for tests)
+      // Never returns message contents - only existence and counts
+      if (url.pathname.startsWith("/api/rooms/")) {
+        const roomCode = url.pathname.replace("/api/rooms/", "").trim().toUpperCase();
+        const room = roomManager.getActiveRoom(roomCode);
+        if (!room) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ exists: false, room: roomCode }));
+          return;
+        }
 
-    // Default response for standalone backend
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ name: "ChitChat Realtime Server", status: "online" }));
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          exists: true,
+          room: room.code,
+          instanceId: room.instanceId,
+          participantCount: room.participants.size,
+          onlineCount: Array.from(room.participants.values()).filter(p => p.isOnline).length,
+          messageCount: room.messages.length
+        }));
+        return;
+      }
+
+      // Pass through Socket.IO paths so Engine.IO handles them
+      if (url.pathname.startsWith("/socket.io/")) {
+        return;
+      }
+
+      // Default response for standalone backend
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ name: "ChitChat Realtime Server", status: "online" }));
+    } catch (err) {
+      console.error("[ChitChat] HTTP request error:", err);
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Internal Server Error" }));
+      }
+    }
   });
 
   const corsOrigin = options.corsOrigin || process.env.CORS_ORIGIN || "*";
@@ -92,6 +105,11 @@ function createRealtimeServer(options = {}) {
 
   registerSocketHandlers(io, roomManager);
 
+  // Runtime error logging for HTTP server
+  httpServer.on("error", (err) => {
+    console.error("[ChitChat] HTTP Server runtime error:", err);
+  });
+
   /**
    * Start listening
    * @param {number} port
@@ -100,12 +118,16 @@ function createRealtimeServer(options = {}) {
    */
   function listen(port, hostname = "0.0.0.0") {
     return new Promise((resolve, reject) => {
+      const onError = (err) => {
+        reject(err);
+      };
+      httpServer.once("error", onError);
       httpServer.listen(port, hostname, () => {
+        httpServer.removeListener("error", onError);
         const addr = httpServer.address();
         const actualPort = typeof addr === "object" && addr ? addr.port : port;
         resolve(actualPort);
       });
-      httpServer.on("error", reject);
     });
   }
 

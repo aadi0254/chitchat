@@ -48,7 +48,7 @@ NEXT_PUBLIC_SOCKET_URL=http://localhost:3001 npm run dev
 | Variable | Description | Default |
 | :--- | :--- | :--- |
 | `PORT` | Port for the HTTP / Socket.IO server | `3000` (unified) or `3001` (standalone) |
-| `HOSTNAME` | Host address to bind the server | `0.0.0.0` |
+| `HOST` | Host address to bind the server | `0.0.0.0` |
 | `NEXT_PUBLIC_SOCKET_URL` | Socket.IO backend URL for the frontend | Current window origin (`window.location.origin`) |
 | `CORS_ORIGIN` | Permitted origin(s) for Socket.IO connections | `*` (or specified URL in production) |
 | `STANDALONE` | Set to `"true"` to run standalone Socket.IO server | `false` |
