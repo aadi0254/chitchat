@@ -6,15 +6,19 @@ const { createRealtimeServer } = require("./server/index");
 const isStandalone = process.env.STANDALONE === "true" || process.argv.includes("--standalone");
 const defaultPort = isStandalone ? 3001 : 3000;
 const port = parseInt(process.env.PORT || String(defaultPort), 10);
-const hostname = process.env.HOSTNAME || "0.0.0.0";
+// Do NOT bind to Render's or container's internal HOSTNAME environment variable.
+// Render provides HOSTNAME=srv-... which binds only to the internal overlay network IP,
+// causing connection refused (HTTP 502) on incoming public proxy traffic.
+// Always bind to 0.0.0.0 to accept traffic across all interfaces.
+const host = process.env.HOST || "0.0.0.0";
 
 async function startServer() {
   if (isStandalone) {
     const serverInstance = createRealtimeServer({
       corsOrigin: process.env.CORS_ORIGIN || "*"
     });
-    const actualPort = await serverInstance.listen(port, hostname);
-    console.log(`> [ChitChat] Standalone Realtime Server listening on http://${hostname}:${actualPort}`);
+    const actualPort = await serverInstance.listen(port, host);
+    console.log(`> [ChitChat] Standalone Realtime Server listening on http://${host}:${actualPort} (bind address: ${host}, configured port: ${port})`);
     return serverInstance;
   }
 
@@ -24,7 +28,7 @@ async function startServer() {
     const nextImport = require("next");
     const next = typeof nextImport === "function" ? nextImport : nextImport.default;
     const dev = process.env.NODE_ENV !== "production";
-    const app = next({ dev, hostname, port });
+    const app = next({ dev, hostname: host, port });
     const handle = app.getRequestHandler();
 
     await app.prepare();
@@ -73,8 +77,8 @@ async function startServer() {
       corsOrigin: "*"
     });
 
-    await serverInstance.listen(port, hostname);
-    console.log(`> [ChitChat] Unified Server (Next.js + Socket.IO) ready on http://localhost:${port}`);
+    await serverInstance.listen(port, host);
+    console.log(`> [ChitChat] Unified Server (Next.js + Socket.IO) ready on http://${host}:${port} (bind address: ${host}, configured port: ${port})`);
     return serverInstance;
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
@@ -82,8 +86,8 @@ async function startServer() {
     const serverInstance = createRealtimeServer({
       corsOrigin: process.env.CORS_ORIGIN || "*"
     });
-    const actualPort = await serverInstance.listen(port, hostname);
-    console.log(`> [ChitChat] Standalone Realtime Server listening on http://${hostname}:${actualPort}`);
+    const actualPort = await serverInstance.listen(port, host);
+    console.log(`> [ChitChat] Standalone Realtime Server listening on http://${host}:${actualPort} (bind address: ${host}, configured port: ${port})`);
     return serverInstance;
   }
 }
