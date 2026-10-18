@@ -1,38 +1,33 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { 
-  PlusCircle, 
-  Users, 
-  MessageSquare, 
-  Send, 
-  Copy, 
-  LogOut, 
-  Check, 
-  Hash, 
-  User as UserIcon,
-  ShieldCheck,
-  ChevronRight,
-  AlertCircle,
-  Menu,
-  X
-} from "lucide-react";
-import { cn, formatDate, generateRoomCode } from "@/lib/utils";
+import React, { useState, useEffect, useRef } from "react";
+import Image from "next/image";
 import { socket, ChatMessage, SocketEvent, RoomParticipant } from "@/lib/socket";
+import { generateRoomCode } from "@/lib/utils";
+import { Navbar } from "@/components/layout/Navbar";
+import { FloatingDecorations } from "@/components/ui/FloatingDecorations";
+import { HeroSection } from "@/components/landing/HeroSection";
+import { FeaturesSection } from "@/components/landing/FeaturesSection";
+import { HowItWorksSection } from "@/components/landing/HowItWorksSection";
+import { AboutSection } from "@/components/landing/AboutSection";
+import { ClosingCta } from "@/components/landing/ClosingCta";
+import { Footer } from "@/components/landing/Footer";
+import { JoinRoomModal } from "@/components/room/JoinRoomModal";
+import { ChatView } from "@/components/chat/ChatView";
 
 function normalizeParticipant(p: RoomParticipant | string): RoomParticipant {
   if (typeof p === "string") {
     return {
       id: p,
       name: p,
-      isOnline: true
+      isOnline: true,
     };
   }
   return {
     id: p.id || p.name || "unknown",
     name: p.name || "Anonymous",
     joinedAt: p.joinedAt,
-    isOnline: p.isOnline !== false
+    isOnline: p.isOnline !== false,
   };
 }
 
@@ -55,9 +50,6 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   // Persistence: Check Session Storage on mount
   useEffect(() => {
@@ -175,13 +167,6 @@ export default function Home() {
     };
   }, [view]);
 
-  // Auto-scroll to bottom safely without animation frame lockup
-  useEffect(() => {
-    if (messages.length === 0) return;
-    const isRapid = messages.length > 50;
-    messagesEndRef.current?.scrollIntoView({ behavior: isRapid ? "auto" : "smooth" });
-  }, [messages.length]);
-
   const joinRoom = async (room: string, name: string) => {
     setLoading(true);
     setError("");
@@ -216,7 +201,18 @@ export default function Home() {
   const handleCreateRoom = () => {
     const code = generateRoomCode();
     setUserInfo({ ...userInfo, room: code });
+    setError("");
     setView("join");
+  };
+
+  const handleJoinClick = () => {
+    setError("");
+    setView("join");
+  };
+
+  const handleGenerateFreshCode = () => {
+    const code = generateRoomCode();
+    setUserInfo((prev) => ({ ...prev, room: code }));
   };
 
   const handleJoinSubmit = (e: React.FormEvent) => {
@@ -263,7 +259,6 @@ export default function Home() {
         setSendError(res.error || "Failed to deliver message");
       } else {
         setInputMessage("");
-        inputRef.current?.focus();
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Delivery failed";
@@ -294,381 +289,90 @@ export default function Home() {
     setIsSidebarOpen(false);
   };
 
+  // Loading Screen
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground gap-4">
-        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-secondary-foreground animate-pulse">Entering Secure Room...</p>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-[#FFFCFF] text-[#172B59] gap-4 relative z-20">
+        <div className="relative w-20 h-20 rounded-3xl overflow-hidden shadow-cute border-2 border-white animate-bounce">
+          <Image
+            src="/assets/panda-avatar.jpg"
+            alt="Loading ChitChat"
+            fill
+            sizes="80px"
+            className="object-cover"
+          />
+        </div>
+        <div className="flex items-center gap-2 text-sm font-bold text-[#7957F5]">
+          <div className="w-4 h-4 border-2 border-[#7957F5] border-t-transparent rounded-full animate-spin" />
+          <span>Entering Cozy Room...</span>
+        </div>
       </div>
     );
   }
 
-  // --- VIEWS ---
-
-  if (view === "landing") {
-    return (
-      <main className="flex min-h-screen flex-col items-center justify-center p-6 bg-background">
-        <div className="w-full max-w-lg space-y-12 text-center animate-fade-in">
-          <div className="space-y-4">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-3xl bg-primary/20 text-primary mb-4 p-4">
-              <ShieldCheck size={48} />
-            </div>
-            <h1 className="text-5xl md:text-7xl font-bold tracking-tighter text-balance">
-              Chit<span className="text-primary italic">Chat</span>.
-            </h1>
-            <p className="text-secondary-foreground text-xl md:text-2xl max-w-md mx-auto">
-              Private, real-time messaging for teams and friends.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <button
-              onClick={handleCreateRoom}
-              className="group relative flex flex-col items-center gap-4 p-8 rounded-2xl bg-secondary hover:bg-accent border border-white/5 hover:border-primary/50 transition-all duration-300"
-            >
-              <div className="p-4 rounded-xl bg-primary/10 text-primary group-hover:scale-110 transition-transform">
-                <PlusCircle size={32} />
-              </div>
-              <div className="text-left">
-                <h3 className="text-lg font-semibold">Create a Room</h3>
-                <p className="text-sm text-secondary-foreground/60">Start a new private session</p>
-              </div>
-              <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity" />
-            </button>
-
-            <button
-              onClick={() => {
-                setError("");
-                setView("join");
-              }}
-              className="group relative flex flex-col items-center gap-4 p-8 rounded-2xl bg-secondary hover:bg-accent border border-white/5 hover:border-primary/50 transition-all duration-300"
-            >
-              <div className="p-4 rounded-xl bg-primary/10 text-primary group-hover:scale-110 transition-transform">
-                <Users size={32} />
-              </div>
-              <div className="text-left">
-                <h3 className="text-lg font-semibold">Join a Room</h3>
-                <p className="text-sm text-secondary-foreground/60">Enter an existing chat code</p>
-              </div>
-              <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity" />
-            </button>
-          </div>
-
-          <footer className="pt-8 text-secondary-foreground/40 text-sm">
-            Powered by Secure Real-time WebSockets
-          </footer>
-        </div>
-      </main>
-    );
-  }
-
+  // View: Join Room
   if (view === "join") {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center p-6 bg-background">
-        <div className="w-full max-w-md space-y-8 glass p-8 rounded-3xl animate-slide-up">
-          <button 
-            onClick={() => setView("landing")}
-            className="text-secondary-foreground/60 hover:text-foreground text-sm flex items-center gap-2 mb-4"
-          >
-            ← Back to Home
-          </button>
-          
-          <div className="space-y-2">
-            <h2 className="text-3xl font-bold tracking-tight">Access Room</h2>
-            <p className="text-secondary-foreground/60">Enter your credentials to join the chat.</p>
-          </div>
-
-          <form onSubmit={handleJoinSubmit} className="space-y-6">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center gap-2">
-                  <UserIcon size={16} /> Display Name
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Alex"
-                  maxLength={30}
-                  value={userInfo.name}
-                  onChange={(e) => setUserInfo({ ...userInfo, name: e.target.value })}
-                  className="w-full px-4 py-3 rounded-xl bg-accent border border-white/10 focus:border-primary/50 focus:ring-1 focus:ring-primary outline-none transition-all"
-                  autoFocus
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center gap-2">
-                  <Hash size={16} /> Room Code
-                </label>
-                <input
-                  type="text"
-                  placeholder="6-DIGIT CODE"
-                  maxLength={6}
-                  value={userInfo.room}
-                  onChange={(e) => setUserInfo({ ...userInfo, room: e.target.value.toUpperCase() })}
-                  className="w-full px-4 py-3 rounded-xl bg-accent border border-white/10 focus:border-primary/50 focus:ring-1 focus:ring-primary outline-none transition-all uppercase tracking-widest font-mono"
-                />
-              </div>
-            </div>
-
-            {error && <p className="text-red-400 text-sm animate-shake">{error}</p>}
-
-            <button
-              type="submit"
-              className="w-full py-4 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold transition-all transform active:scale-95 flex items-center justify-center gap-2"
-            >
-              Enter Chat Room <ChevronRight size={20} />
-            </button>
-          </form>
-        </div>
-      </main>
+      <div className="relative min-h-screen">
+        <FloatingDecorations />
+        <JoinRoomModal
+          name={userInfo.name}
+          room={userInfo.room}
+          error={error}
+          loading={loading}
+          onNameChange={(val) => setUserInfo((prev) => ({ ...prev, name: val }))}
+          onRoomChange={(val) => setUserInfo((prev) => ({ ...prev, room: val }))}
+          onSubmit={handleJoinSubmit}
+          onBack={() => setView("landing")}
+          onGenerateNewCode={handleGenerateFreshCode}
+        />
+      </div>
     );
   }
 
-  // --- CHAT ROOM VIEW ---
-
-  return (
-    <div className="flex flex-col md:flex-row h-screen h-[100dvh] bg-background overflow-hidden relative">
-      {/* Mobile Backdrop */}
-      <div 
-        className={cn(
-          "fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden transition-opacity duration-300",
-          isSidebarOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-        )}
-        onClick={() => setIsSidebarOpen(false)}
-        aria-hidden="true"
+  // View: Active Chat
+  if (view === "chat") {
+    return (
+      <ChatView
+        roomCode={userInfo.room}
+        userName={userInfo.name}
+        currentUserId={socket?.getParticipantId()}
+        messages={messages}
+        participants={participants}
+        inputMessage={inputMessage}
+        isSending={isSending}
+        sendError={sendError}
+        copied={copied}
+        isSidebarOpen={isSidebarOpen}
+        onCopyCode={copyCode}
+        onLeaveRoom={leaveRoom}
+        onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+        onCloseSidebar={() => setIsSidebarOpen(false)}
+        onInputChange={setInputMessage}
+        onSendMessage={handleSendMessage}
+        onClearSendError={() => setSendError("")}
       />
+    );
+  }
 
-      {/* Sidebar */}
-      <aside 
-        id="chat-sidebar"
-        aria-label="Room Information and Participants"
-        className={cn(
-          "fixed inset-y-0 left-0 z-40 w-72 sm:w-80 max-w-[85vw] h-full h-[100dvh] flex flex-col bg-background/95 backdrop-blur-xl border-r border-white/10 shadow-2xl transition-transform duration-300 ease-in-out",
-          "md:static md:translate-x-0 md:w-80 md:h-full md:z-auto md:shadow-none md:border-r md:border-white/5 md:bg-transparent md:backdrop-blur-none glass-card",
-          isSidebarOpen ? "translate-x-0" : "-translate-x-full"
-        )}
-      >
-        <div className="p-6 border-b border-white/5 space-y-6 shrink-0">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setIsSidebarOpen(false)}
-                className="p-1.5 -ml-1.5 rounded-lg text-secondary-foreground/60 hover:text-foreground hover:bg-white/10 md:hidden transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
-                aria-label="Close sidebar"
-              >
-                <X size={20} />
-              </button>
-              <h2 className="text-2xl font-bold tracking-tighter italic">ChitChat</h2>
-            </div>
-            <button 
-              type="button"
-              onClick={leaveRoom}
-              className="p-2 rounded-lg hover:bg-red-500/20 text-red-400 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400"
-              title="Leave Room"
-              aria-label="Leave Room"
-            >
-              <LogOut size={20} />
-            </button>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-secondary-foreground/40 uppercase tracking-wider">Room Code</label>
-            <div className="flex items-center justify-between p-3 rounded-xl bg-accent border border-white/10 group">
-              <span className="font-mono font-bold tracking-widest text-primary">{userInfo.room}</span>
-              <button 
-                type="button"
-                onClick={copyCode}
-                className="p-1.5 rounded-md hover:bg-white/10 text-secondary-foreground/60 transition-all active:scale-90 focus:outline-none focus:ring-2 focus:ring-primary"
-                aria-label={copied ? "Room code copied" : "Copy room code"}
-              >
-                {copied ? <Check size={16} className="text-green-400" /> : <Copy size={16} />}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold flex items-center gap-2">
-              <Users size={16} className="text-primary" /> Active Participants
-            </h3>
-            <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full font-bold">
-              {participants.filter((p) => p.isOnline !== false).length}
-            </span>
-          </div>
-          
-          <ul className="space-y-2.5">
-            {participants.map((p) => {
-              const currentPid = socket?.getParticipantId();
-              const isCurrentUser = (currentPid && p.id === currentPid) || p.name === userInfo.name;
-              const displayName = p.name || "Anonymous";
-              const initial = displayName.charAt(0).toUpperCase();
-
-              return (
-                <li 
-                  key={p.id} 
-                  className="flex items-center gap-3 p-2.5 rounded-xl bg-accent/30 hover:bg-accent/60 border border-white/5 transition-all animate-slide-up"
-                >
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-xs font-bold border border-white/10 shrink-0 shadow-sm">
-                    {initial}
-                  </div>
-                  <div className="flex flex-col min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className={cn("text-sm font-medium truncate", isCurrentUser ? "text-primary" : "text-foreground")}>
-                        {displayName}
-                      </span>
-                      {isCurrentUser && (
-                        <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.2 rounded font-semibold shrink-0">
-                          You
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 text-[11px] text-secondary-foreground/50 truncate">
-                      <span className="font-mono text-[10px]" title={`Participant ID: ${p.id}`}>
-                        ID: {p.id.slice(0, 6)}
-                      </span>
-                      {p.joinedAt ? (
-                        <>
-                          <span>•</span>
-                          <span>{formatDate(p.joinedAt)}</span>
-                        </>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div 
-                    className={cn(
-                      "w-2 h-2 rounded-full shrink-0 ml-1 transition-colors",
-                      p.isOnline !== false 
-                        ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" 
-                        : "bg-zinc-500"
-                    )}
-                    title={p.isOnline !== false ? "Online" : "Away"}
-                  />
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      </aside>
-
-      {/* Main Chat Area */}
-      <main className="flex-1 flex flex-col h-full min-w-0 bg-background relative">
-        <header className="p-3 sm:p-4 border-b border-white/5 flex items-center justify-between bg-background/50 backdrop-blur-md z-10 shrink-0">
-          <div className="flex items-center gap-3">
-            {/* Mobile Hamburger Menu Button */}
-            <button
-              type="button"
-              onClick={() => setIsSidebarOpen(true)}
-              className="md:hidden p-2 rounded-xl bg-accent/60 hover:bg-accent text-foreground hover:text-primary border border-white/10 transition-all active:scale-95 focus:outline-none focus:ring-2 focus:ring-primary flex items-center justify-center shrink-0"
-              aria-label="Open sidebar menu"
-              aria-expanded={isSidebarOpen}
-              aria-controls="chat-sidebar"
-            >
-              <Menu size={20} />
-            </button>
-
-            <div className="md:hidden flex items-center gap-2">
-               <Hash size={18} className="text-primary shrink-0" />
-               <span className="font-mono font-bold tracking-wider">{userInfo.room}</span>
-               <span className="text-[11px] bg-primary/20 text-primary px-2 py-0.5 rounded-full font-bold ml-1">
-                 {participants.filter((p) => p.isOnline !== false).length} online
-               </span>
-            </div>
-            <div className="hidden md:flex flex-col">
-              <h1 className="text-lg font-bold">General Room Chat</h1>
-              <p className="text-xs text-secondary-foreground/60">Ephemeral In-Memory Chat • TLS Transport</p>
-            </div>
-          </div>
-        </header>
-
-        {/* Send Error Toast */}
-        {sendError && (
-          <div className="absolute top-16 left-4 right-4 z-20 flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-xs backdrop-blur-md animate-slide-down">
-            <AlertCircle size={16} />
-            <span>{sendError}</span>
-            <button 
-              onClick={() => setSendError("")} 
-              className="ml-auto text-red-400/60 hover:text-red-400"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth">
-          {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center opacity-20 gap-4">
-              <MessageSquare size={80} />
-              <p className="text-xl font-medium">No messages yet. Say hi!</p>
-            </div>
-          ) : (
-            messages.map((msg) => (
-              <div 
-                key={msg.id} 
-                className={cn(
-                  "flex flex-col max-w-[85%] md:max-w-[70%] animate-fade-in",
-                  msg.type === "system" ? "mx-auto w-full items-center py-2" : 
-                  msg.sender === userInfo.name ? "ml-auto items-end" : "items-start"
-                )}
-              >
-                {msg.type === "system" ? (
-                  <span className="text-xs px-3 py-1 rounded-full bg-accent text-secondary-foreground/60 border border-white/5 italic">
-                    {msg.text}
-                  </span>
-                ) : (
-                  <>
-                    <div className="flex items-center gap-2 mb-1 px-1">
-                      <span className="text-xs font-bold text-secondary-foreground/60">
-                        {msg.sender === userInfo.name ? "You" : msg.sender}
-                      </span>
-                      <span className="text-[10px] text-secondary-foreground/40">{formatDate(msg.timestamp)}</span>
-                    </div>
-                    <div 
-                      className={cn(
-                        "px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-lg break-words",
-                        msg.sender === userInfo.name 
-                          ? "bg-primary text-white rounded-tr-none" 
-                          : "bg-accent text-foreground rounded-tl-none border border-white/5"
-                      )}
-                    >
-                      {msg.text}
-                    </div>
-                  </>
-                )}
-              </div>
-            ))
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input */}
-        <footer className="p-4 bg-background/50 backdrop-blur-md">
-          <form 
-            onSubmit={handleSendMessage}
-            className="flex items-center gap-2 p-1.5 rounded-2xl bg-secondary border border-white/10 group focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20 transition-all shadow-2xl"
-          >
-            <input
-              ref={inputRef}
-              type="text"
-              placeholder="Type your message..."
-              maxLength={1000}
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              className="flex-1 bg-transparent px-4 py-3 outline-none text-sm"
-              disabled={isSending}
-            />
-            <button
-              type="submit"
-              disabled={!inputMessage.trim() || isSending}
-              className="p-3 rounded-xl bg-primary text-white hover:bg-primary/90 disabled:opacity-50 disabled:hover:bg-primary transition-all active:scale-90"
-            >
-              <Send size={20} />
-            </button>
-          </form>
-        </footer>
+  // View: Landing Page (Default)
+  return (
+    <div className="relative min-h-screen flex flex-col">
+      <FloatingDecorations />
+      <Navbar onNavigateHome={() => setView("landing")} />
+      
+      <main className="flex-1 flex flex-col">
+        <HeroSection
+          onCreateRoom={handleCreateRoom}
+          onJoinRoom={handleJoinClick}
+        />
+        <FeaturesSection />
+        <HowItWorksSection />
+        <AboutSection />
+        <ClosingCta onCreateRoom={handleCreateRoom} />
       </main>
+
+      <Footer />
     </div>
   );
 }

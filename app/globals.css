@@ -3,33 +3,42 @@
 @tailwind utilities;
 
 :root {
-  --background: 224 71% 4%;
-  --foreground: 213 31% 91%;
+  /* Pastel Kawaii Light Theme Variables */
+  --background: 300 40% 99%; /* #FFFCFF */
+  --foreground: 222 59% 22%; /* #172B59 */
   
-  --primary: 263.4 70% 50.4%;
-  --primary-foreground: 210 40% 98%;
+  --primary: 253 90% 65%; /* #7957F5 */
+  --primary-foreground: 0 0% 100%;
   
-  --secondary: 222.2 47.4% 11.2%;
-  --secondary-foreground: 210 40% 98%;
+  --secondary: 215 50% 95%; /* Soft blue/lavender tint */
+  --secondary-foreground: 220 28% 44%; /* #52658D */
   
-  --accent: 217.2 32.6% 17.5%;
-  --accent-foreground: 210 40% 98%;
+  --accent: 320 100% 94%; /* Soft pink */
+  --accent-foreground: 253 90% 65%;
   
-  --card: 224 71% 4%;
-  --card-foreground: 213 31% 91%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 59% 22%;
   
-  --border: 217.2 32.6% 17.5%;
-  --input: 217.2 32.6% 17.5%;
-  --ring: 263.4 70% 50.4%;
+  --border: 240 30% 90%;
+  --input: 240 25% 92%;
+  --ring: 253 90% 65%;
   
-  --radius: 0.75rem;
+  --radius: 1.25rem;
 }
 
 body {
-  background-color: hsl(var(--background));
-  color: hsl(var(--foreground));
-  font-family: 'Inter', sans-serif;
+  background-color: #FFFCFF;
+  background-image: 
+    radial-gradient(at 15% 15%, rgba(221, 241, 255, 0.75) 0px, transparent 55%),
+    radial-gradient(at 85% 12%, rgba(254, 224, 240, 0.7) 0px, transparent 50%),
+    radial-gradient(at 50% 50%, rgba(231, 223, 255, 0.5) 0px, transparent 65%),
+    radial-gradient(at 20% 85%, rgba(200, 181, 255, 0.4) 0px, transparent 60%),
+    radial-gradient(at 80% 85%, rgba(254, 224, 240, 0.6) 0px, transparent 55%);
+  background-attachment: fixed;
+  color: #172B59;
+  font-family: var(--font-sans), 'Nunito', 'Plus Jakarta Sans', system-ui, sans-serif;
   overflow-x: hidden;
+  min-height: 100vh;
 }
 
 @layer utilities {
@@ -38,34 +47,99 @@ body {
   }
 }
 
-/* Custom Scrollbar */
+/* Custom Pastel Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 7px;
+  height: 7px;
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: rgba(231, 223, 255, 0.2);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--accent));
-  border-radius: 10px;
+  background: rgba(121, 87, 245, 0.25);
+  border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--primary));
+  background: rgba(121, 87, 245, 0.45);
 }
 
-/* Glassmorphism */
+/* Glassmorphism System */
 .glass {
-  background: rgba(15, 23, 42, 0.6);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.68);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 16px 40px -12px rgba(121, 87, 245, 0.12), 0 4px 12px -2px rgba(185, 221, 255, 0.25);
 }
 
 .glass-card {
-  background: rgba(30, 41, 59, 0.4);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 18px 45px -10px rgba(121, 87, 245, 0.13), 0 6px 16px -2px rgba(185, 221, 255, 0.28);
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.glass-card:hover {
+  transform: translateY(-4px);
+  background: rgba(255, 255, 255, 0.84);
+  border-color: rgba(255, 255, 255, 1);
+  box-shadow: 0 24px 50px -10px rgba(121, 87, 245, 0.2), 0 8px 24px -2px rgba(185, 221, 255, 0.35);
+}
+
+.glass-pill {
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 4px 14px -2px rgba(121, 87, 245, 0.08);
+}
+
+.glass-input {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1.5px solid rgba(200, 181, 255, 0.5);
+  box-shadow: 0 2px 8px rgba(121, 87, 245, 0.04);
+}
+
+.glass-input:focus {
+  border-color: #7957F5;
+  box-shadow: 0 0 0 3px rgba(121, 87, 245, 0.2);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+/* Kawaii Glows */
+.glow-purple {
+  box-shadow: 0 0 35px 2px rgba(121, 87, 245, 0.25);
+}
+
+.glow-pink {
+  box-shadow: 0 0 35px 2px rgba(242, 139, 203, 0.3);
+}
+
+.glow-blue {
+  box-shadow: 0 0 35px 2px rgba(185, 221, 255, 0.35);
+}
+
+/* Handwritten font style simulation for decorative accents */
+.font-handwriting {
+  font-family: 'Comic Sans MS', 'Caveat', 'Patrick Hand', cursive, sans-serif;
+  letter-spacing: 0.02em;
+}
+
+/* Reduced Motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
